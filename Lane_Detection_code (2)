@@ -1,0 +1,64 @@
+import cv2
+import numpy as np
+
+def lane_detect(image, key=None):
+    """
+    Phát hiện 2 line (trái, phải) từ nửa dưới ảnh grayscale.
+    Trả về danh sách line_left, line_right (dạng parabol fit bằng polyfit).
+    """
+
+    h, w = image.shape[:2]
+
+    # --- CROP: chỉ lấy nửa dưới ảnh ---
+    roi = image[h//2:h, :]
+    y_offset = h // 2   # để cộng bù khi vẽ lại
+
+    # Làm mượt ảnh
+    blur = cv2.GaussianBlur(roi, (5, 5), 0)
+
+    # Edge detection
+    edges = cv2.Canny(blur, 50, 150)
+
+    # Tìm contour
+    contours, _ = cv2.findContours(edges, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)
+
+    left_points = []
+    right_points = []
+
+    mid_x = w // 2
+
+    # gom điểm contour theo trái/phải
+    for cnt in contours:
+        for p in cnt:
+            x, y = p[0]
+            if x < mid_x:
+                left_points.append((y, x))   # đảo lại: fit x theo y
+            else:
+                right_points.append((y, x))
+
+    # fit parabol x = ay^2 + by + c
+    line_left = np.polyfit([p[0] for p in left_points],
+                           [p[1] for p in left_points], 2) if len(left_points) > 10 else None
+    line_right = np.polyfit([p[0] for p in right_points],
+                            [p[1] for p in right_points], 2) if len(right_points) > 10 else None
+
+    return line_left, line_right, y_offset
+
+
+def draw_parabola(img, coeffs, color, thickness=2, y_offset=0):
+    """Vẽ parabol với hệ số coeffs = [a, b, c], dạng x = ay^2 + by + c"""
+    if coeffs is None:
+        return
+
+    h, w = img.shape[:2]
+    points = []
+    # duyệt toàn bộ chiều cao của ROI
+    for y in range(0, h//2, 5):  
+        x = int(coeffs[0]*y**2 + coeffs[1]*y + coeffs[2])
+        if 0 <= x < w:
+            points.append((x, y + y_offset))  # cộng offset để vẽ đúng vị trí
+
+    if len(points) > 1:
+        for i in range(len(points)-1):
+            cv2.line(img, points[i], points[i+1], color, thickness)
+
